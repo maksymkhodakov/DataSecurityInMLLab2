@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 *.pt
 /ArTaxOr/
+/data/
+/results/runs/*.pt
+/report/
