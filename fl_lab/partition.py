@@ -15,6 +15,11 @@
 
 Функції повертають лише СПИСКИ ІНДЕКСІВ. Далі кожен клієнт отримує Dataset,
 побудований тільки зі своїх індексів.
+
+Сценарії впорядковано за зростанням «неоднорідності» (non-IID):
+від ідеального випадку (1), де обидва клієнти бачать однаковий розподіл, до
+найскладнішого (4), де локальні моделі взагалі не знають частини класів
+і FedAvg має найбільше підстав «зламатися».
 """
 from __future__ import annotations
 
@@ -26,6 +31,12 @@ from . import config as C
 # Частка зображень кожного класу, яка потрапляє до клієнта 1 (решта → клієнт 2).
 # Порядок відповідає config.CLASSES:
 #   Araneae, Coleoptera, Diptera, Hemiptera, Hymenoptera, Lepidoptera, Odonata
+# При 100 зображеннях на клас розміри частин виходять такими:
+#   iid_equal          → 350 / 350;
+#   unequal_balanced   → 525 / 175;
+#   unequal_imbalanced → 450 / 250 (клієнт 1 «спеціалізується» на перших класах,
+#                        клієнт 2 — на останніх);
+#   missing_classes    → 350 / 350 (розмір однаковий, але склад класів різний).
 SCENARIO_FRACTIONS: dict[str, list[float]] = {
     "iid_equal":          [0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50],
     "unequal_balanced":   [0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75],
@@ -34,6 +45,7 @@ SCENARIO_FRACTIONS: dict[str, list[float]] = {
     "missing_classes":    [1.00, 1.00, 0.50, 0.50, 0.50, 0.00, 0.00],
 }
 
+# Людиночитні назви сценаріїв для заголовків графіків і звіту.
 SCENARIO_TITLES = {
     "iid_equal": "Однаковий розмір, збалансовані класи",
     "unequal_balanced": "Різний розмір, збалансовані класи",
@@ -51,6 +63,8 @@ def split_indices(records: list[dict], scenario: str, seed: int = C.SEED) -> lis
     if scenario not in SCENARIO_FRACTIONS:
         raise ValueError(f"Невідомий сценарій: {scenario}")
     fractions = SCENARIO_FRACTIONS[scenario]
+    # Локальний генератор з фіксованим seed: те саме розбиття для всіх стратегій
+    # і при кожному запуску — стратегії порівнюються на ідентичних даних.
     rng = random.Random(seed)
 
     # Групуємо індекси записів за класом
@@ -59,9 +73,12 @@ def split_indices(records: list[dict], scenario: str, seed: int = C.SEED) -> lis
         by_class[rec["class_idx"]].append(idx)
 
     client_1, client_2 = [], []
+    # sorted() — фіксований порядок обходу класів, щоб послідовність викликів rng
+    # (а отже й результат) не залежала від порядку вставки у словник.
     for class_idx, idxs in sorted(by_class.items()):
         idxs = idxs[:]
         rng.shuffle(idxs)
+        # k перших (після перемішування) зображень класу → клієнт 1, решта → клієнт 2.
         k = round(len(idxs) * fractions[class_idx])
         client_1.extend(idxs[:k])
         client_2.extend(idxs[k:])

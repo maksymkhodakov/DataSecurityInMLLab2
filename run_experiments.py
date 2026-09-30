@@ -26,6 +26,12 @@ from fl_lab.server import run_centralized, run_federated
 
 
 def is_finished(path) -> bool:
+    """True, якщо лог експерименту існує і позначений як завершений.
+
+    Лог записується після кожного раунду, тому сам факт існування файлу
+    ще не означає, що експеримент дійшов до кінця — перевіряємо прапорець finished.
+    Перерваний експеримент буде перезапущено з нуля.
+    """
     if not path.exists():
         return False
     with open(path, encoding="utf-8") as f:
@@ -34,6 +40,7 @@ def is_finished(path) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="Federated Learning на ArTaxOr")
+    # nargs="+" дозволяє передати кілька значень: --strategies fedavg fedprox
     parser.add_argument("--strategies", nargs="+", default=C.STRATEGIES, choices=C.STRATEGIES)
     parser.add_argument("--scenarios", nargs="+", default=C.SCENARIOS, choices=C.SCENARIOS)
     parser.add_argument("--rounds", type=int, default=C.NUM_ROUNDS)
@@ -43,9 +50,12 @@ def main():
     parser.add_argument("--threads", type=int, default=None, help="кількість потоків CPU для torch")
     args = parser.parse_args()
 
+    # Обмеження кількості потоків корисне, якщо паралельно на машині працює
+    # щось інше (за замовчуванням torch займає всі ядра).
     if args.threads:
         torch.set_num_threads(args.threads)
     device = torch.device(args.device) if args.device else get_device()
+    # Кеш читаємо один раз і передаємо в усі експерименти.
     cache = load_cache()
     C.LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -58,6 +68,8 @@ def main():
         if args.centralized:
             return
 
+    # Зовнішній цикл — по сценаріях: так результати всіх трьох стратегій для
+    # одного сценарію з'являються разом і їх можна порівнювати ще до завершення всього запуску.
     for scenario in args.scenarios:
         for strategy in args.strategies:
             path = C.LOGS_DIR / f"{strategy}__{scenario}.json"
